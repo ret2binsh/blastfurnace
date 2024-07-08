@@ -9,6 +9,13 @@ import uuid
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.kbkdf import KBKDFHMAC, CounterLocation, Mode
 
+# static const BYTE gmsaSecurityDescriptor[] = {/* O:SYD:(A;;FRFW;;;S-1-5-9) */
+# https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/9cd2fc5e-7305-4fb8-b233-2a60bc3eec68
+GmsaSecurityDescriptor = bytes([0x1, 0x0, 0x4, 0x80, 0x30, 0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x14, 0x00, 0x00, 0x00, 0x02, 0x0, 0x1C, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0,
+                0x14, 0x0, 0x9F, 0x1, 0x12, 0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x9,
+                0x0, 0x0, 0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x12, 0x0, 0x0, 0x0])
+
 _EPOCH_FILETIME = 116444736000000000  # 1970-01-01 as FILETIME
 KDS_SERVICE_LABEL = "KDS service\0".encode("utf-16-le")
 GMSA_LABEL = "GMSA PASSWORD\0".encode("utf-16-le")
@@ -134,7 +141,7 @@ def get_gke_from_cache(
     l0 = int(current_time / (32 * 32 * base))
     l1 = int((current_time % (32 * 32 * base)) / (32 * base))
     l2 = int((current_time % (32 * base)) / base)
-    
+
     rk = cache._get_key(
         target_sd,
         root_key_identifier,
@@ -487,8 +494,7 @@ class GroupKeyEnvelope:
                 self.l0.to_bytes(4, byteorder="little"),
                 self.l1.to_bytes(4, byteorder="little"),
                 self.l2.to_bytes(4, byteorder="little"),
-                #self.root_key_identifier.bytes_le,
-                self.root_key_identifier.bytes,
+                self.root_key_identifier.bytes_le,
                 len(b_kdf_algorithm).to_bytes(4, byteorder="little"),
                 len(self.kdf_parameters).to_bytes(4, byteorder="little"),
                 len(b_secret_algorithm).to_bytes(4, byteorder="little"),
@@ -529,12 +535,9 @@ class GroupKeyEnvelope:
         # the generated L1 key is not needed here
         _,l2_key = compute_l2_key(hash_algo, key_id.l1, key_id.l2, self)
 
-        print("get_kek l2key: {}".format(base64.b64encode(l2_key).decode()))
-
         # this should never be set
         if key_id.is_public_key:
             return None
-
         else:
             return kdf(
                 hash_algo,
@@ -631,6 +634,7 @@ def compute_l1_key(
     #   RKID || L0 || 0xffffffff || 0xffffffff,
     #   512
     # )
+
 
     l0_seed = kdf(
         algorithm,
@@ -753,11 +757,7 @@ def compute_kdf_context(
 ) -> bytes:
     return b"".join(
         [
-            # Changed from little endianess to big which is required for
-            # generating the gMSA keys but unsure if needed for normal
-            # group key operations...
-            #key_guid.bytes_le,
-            key_guid.bytes,
+            key_guid.bytes_le,
             l0.to_bytes(4, byteorder="little", signed=True),
             l1.to_bytes(4, byteorder="little", signed=True),
             l2.to_bytes(4, byteorder="little", signed=True),
