@@ -1,0 +1,4 @@
+cryptography==42.0.8
+impacket==0.11.0
+passlib==1.7.4
+pycryptodomex==3.20.0

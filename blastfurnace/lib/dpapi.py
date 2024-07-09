@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import logging
+import struct
 import typing as t
 import time
 import uuid
@@ -9,16 +11,23 @@ import uuid
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.kbkdf import KBKDFHMAC, CounterLocation, Mode
 
+logger = logging.getLogger(__name__)
+
 # static const BYTE gmsaSecurityDescriptor[] = {/* O:SYD:(A;;FRFW;;;S-1-5-9) */
 # https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/9cd2fc5e-7305-4fb8-b233-2a60bc3eec68
-GmsaSecurityDescriptor = bytes([0x1, 0x0, 0x4, 0x80, 0x30, 0x0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x14, 0x00, 0x00, 0x00, 0x02, 0x0, 0x1C, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0,
-                0x14, 0x0, 0x9F, 0x1, 0x12, 0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x9,
-                0x0, 0x0, 0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x5, 0x12, 0x0, 0x0, 0x0])
+GmsaSecurityDescriptor = bytes(
+        [
+            0x01, 0x00, 0x04, 0x80, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x14, 0x00, 0x00, 0x00, 0x02, 0x00, 0x1C, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x14, 0x00, 0x9F, 0x01, 0x12, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x09,
+            0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x12, 0x00, 0x00, 0x00
+        ]
+)
 
 _EPOCH_FILETIME = 116444736000000000  # 1970-01-01 as FILETIME
 KDS_SERVICE_LABEL = "KDS service\0".encode("utf-16-le")
 GMSA_LABEL = "GMSA PASSWORD\0".encode("utf-16-le")
+GMSA_KEY_LEN = 256
 
 @dataclasses.dataclass(frozen=True)
 class KeyIdentifier:
@@ -142,6 +151,8 @@ def get_gke_from_cache(
     l1 = int((current_time % (32 * 32 * base)) / (32 * base))
     l2 = int((current_time % (32 * base)) / base)
 
+    logger.debug(f"[!] Current L Values: L0: {l0} L1: {l1} L2: {l2}")
+
     rk = cache._get_key(
         target_sd,
         root_key_identifier,
@@ -172,12 +183,6 @@ def get_gke_from_cache(
         root_key_identifier=root_key_identifier,
         kdf_algorithm=rk.kdf_algorithm,
         kdf_parameters=rk.kdf_parameters,
-        secret_algorithm=rk.secret_algorithm,
-        secret_parameters=rk.secret_parameters,
-        private_key_length=rk.private_key_length,
-        public_key_length=rk.public_key_length,
-        domain_name=rk.domain_name,
-        forest_name=rk.forest_name,
         l1_key=l1_key,
         l2_key=l2_key,
     )
@@ -190,11 +195,45 @@ class RootKey(t.NamedTuple):
     version: int
     kdf_algorithm: str
     kdf_parameters: bytes
-    secret_algorithm: str
-    secret_parameters: t.Optional[bytes]
-    private_key_length: int
-    public_key_length: int
 
+    def pack(self):
+        return b"".join(
+            [
+                struct.pack("<I", self.version),
+                struct.pack("<I", len(self.key)),
+                struct.pack("<I", len(self.kdf_algorithm)),
+                struct.pack("<I", len(self.kdf_parameters)),
+                self.key,
+                self.kdf_algorithm.encode("utf-8"),
+                self.kdf_parameters,
+            ]
+        )
+
+    @classmethod
+    def unpack(self, data):
+        view = memoryview(data)
+
+        version = struct.unpack("<I", view[:4])[0]
+        key_len = struct.unpack("<I", view[4:8])[0]
+        kdf_algo_len = struct.unpack("<I", view[8:12])[0]
+        kdf_param_len = struct.unpack("<I", view[12:16])[0]
+        view = view[16:]
+
+        key = view[:key_len].tobytes()
+        view = view[key_len:]
+
+        kdf_algorithm = view[:kdf_algo_len].tobytes().decode("utf-8")
+        view = view[kdf_algo_len:]
+
+        kdf_parameters = view[:kdf_param_len].tobytes()
+        view = view[kdf_param_len:]
+        
+        return RootKey(
+            key=key,
+            version=version,
+            kdf_algorithm=kdf_algorithm,
+            kdf_parameters=kdf_parameters,
+        )
 
 class KeyCache:
     """Key Cache.
@@ -213,10 +252,6 @@ class KeyCache:
         version: int = 1,
         kdf_algorithm: str = "SP800_108_CTR_HMAC",
         kdf_parameters: bytes = None,
-        secret_algorithm: str = "DH",
-        secret_parameters: t.Optional[bytes] = None,
-        private_key_length: int = 512,
-        public_key_length: int = 2048,
     ) -> None:
         """Load a KDS root key into the cache.
 
@@ -297,17 +332,24 @@ class KeyCache:
             version=version,
             kdf_algorithm=kdf_algorithm,
             kdf_parameters=kdf_parameters,
-            secret_algorithm=secret_algorithm,
-            secret_parameters=secret_parameters,
-            private_key_length=private_key_length,
-            public_key_length=public_key_length,
         )
 
     def dump_keys(self):
 
+        keys = {}
         for rkid in self._root_keys.keys():
             rk = self._root_keys.get(rkid, None)
-            print(rk)
+            keys[str(rkid)] = base64.b64encode(rk.pack()).decode()
+        return keys
+
+    @classmethod
+    def load_cache(self, cache):
+
+        kcache = KeyCache()
+        for rkid in cache:
+            rk = RootKey.unpack(base64.b64decode(cache[rkid]))
+            kcache._root_keys[uuid.UUID(rkid)] = rk
+        return kcache
 
     def _get_key(
         self,
@@ -333,9 +375,6 @@ class KeyCache:
         Returns:
             Optional[GroupKeyEnvelope]: The cached key if one was available.
         """
-        #seed_key = self._seed_keys.setdefault(root_key_id, {}).setdefault(target_sd, {}).get(l0, None)
-        #if seed_key and (seed_key.l1 > l1 or (seed_key.l1 == l1 and seed_key.l2 >= l2)):
-        #    return seed_key
 
         root_key = self._root_keys.get(root_key_id, None)
         if root_key:
@@ -356,12 +395,6 @@ class KeyCache:
                 root_key_identifier=root_key_id,
                 kdf_algorithm=root_key.kdf_algorithm,
                 kdf_parameters=root_key.kdf_parameters,
-                secret_algorithm=root_key.secret_algorithm,
-                secret_parameters=root_key.secret_parameters or b"",
-                private_key_length=root_key.private_key_length,
-                public_key_length=root_key.public_key_length,
-                domain_name="",
-                forest_name="",
                 l1_key=l1_seed,
                 l2_key=b"",
             )
@@ -466,12 +499,6 @@ class GroupKeyEnvelope:
     root_key_identifier: uuid.UUID
     kdf_algorithm: str
     kdf_parameters: bytes
-    secret_algorithm: str
-    secret_parameters: bytes
-    private_key_length: int
-    public_key_length: int
-    domain_name: str
-    forest_name: str
     l1_key: bytes
     l2_key: bytes
 
@@ -482,9 +509,6 @@ class GroupKeyEnvelope:
 
     def pack(self) -> bytes:
         b_kdf_algorithm = (self.kdf_algorithm + "\00").encode("utf-16-le")
-        b_secret_algorithm = (self.secret_algorithm + "\00").encode("utf-16-le")
-        b_domain_name = (self.domain_name + "\00").encode("utf-16-le")
-        b_forest_name = (self.forest_name + "\00").encode("utf-16-le")
 
         return b"".join(
             [
@@ -497,20 +521,10 @@ class GroupKeyEnvelope:
                 self.root_key_identifier.bytes_le,
                 len(b_kdf_algorithm).to_bytes(4, byteorder="little"),
                 len(self.kdf_parameters).to_bytes(4, byteorder="little"),
-                len(b_secret_algorithm).to_bytes(4, byteorder="little"),
-                len(self.secret_parameters).to_bytes(4, byteorder="little"),
-                self.private_key_length.to_bytes(4, byteorder="little"),
-                self.public_key_length.to_bytes(4, byteorder="little"),
                 len(self.l1_key).to_bytes(4, byteorder="little"),
                 len(self.l2_key).to_bytes(4, byteorder="little"),
-                len(b_domain_name).to_bytes(4, byteorder="little"),
-                len(b_forest_name).to_bytes(4, byteorder="little"),
                 b_kdf_algorithm,
                 self.kdf_parameters,
-                b_secret_algorithm,
-                self.secret_parameters,
-                b_domain_name,
-                b_forest_name,
                 self.l1_key,
                 self.l2_key,
             ]
@@ -544,9 +558,11 @@ class GroupKeyEnvelope:
                 l2_key,
                 GMSA_LABEL,
                 sid,
-                256,
+                GMSA_KEY_LEN,
             )
 
+
+    """
     @classmethod
     def unpack(
         cls,
@@ -618,6 +634,7 @@ class GroupKeyEnvelope:
             l1_key=l1_key,
             l2_key=l2_key,
         )
+    """
 
 def compute_l1_key(
     target_sd: bytes,
@@ -634,7 +651,6 @@ def compute_l1_key(
     #   RKID || L0 || 0xffffffff || 0xffffffff,
     #   512
     # )
-
 
     l0_seed = kdf(
         algorithm,
@@ -699,7 +715,7 @@ def compute_l2_key(
 
     # addition from original library
     # an L1 key needs to be generated
-    # when the request L1 Index is > 0
+    # when the requested L1 Index is > 0
     if request_l1 > 0:
         adjusted_l1 = request_l1 - 1
 
@@ -782,8 +798,6 @@ def kdf(
         length=length,
         label=label,
         context=context,
-        # MS-SMB2 uses the same KDF function and my implementation that
-        # sets a value of 4 seems to work so assume that's the case here.
         rlen=4,
         llen=4,
         location=CounterLocation.BeforeFixed,

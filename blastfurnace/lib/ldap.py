@@ -9,6 +9,8 @@ from impacket.examples.utils import parse_credentials
 from blastfurnace.lib.dpapi import KeyCache
 from blastfurnace.lib.dpapi import KeyIdentifier
 
+logger = logging.getLogger(__name__)
+
 class LdapSession:
 
     def __init__(self, options):
@@ -49,19 +51,18 @@ class LdapSession:
             for attribute in item['attributes']:
                 if str(attribute['type']) == "msDS-ManagedPasswordId":
                     mskds_managed_password_id = attribute['vals'][0].asOctets()
-                    logging.debug(f"msKds-ManagedPasswordID={base64.b64encode(mskds_managed_password_id).decode()}")
+                    logger.debug(f"[-] msKds-ManagedPasswordID={base64.b64encode(mskds_managed_password_id).decode()}")
                 elif str(attribute['type']) == "objectSid":
                     gmsa_sid = attribute['vals'][0].asOctets()
-                    logging.debug(f"gmsa_sid={base64.b64encode(gmsa_sid).decode()}")
+                    logger.debug(f"[-] gmsa_sid={base64.b64encode(gmsa_sid).decode()}")
                 elif str(attribute['type']) == "sAMAccountName":
                     sam_name = attribute['vals'][0].asOctets().decode()
-                    logging.debug(f"SAM account name={sam_name}")
+                    logger.debug(f"[-] SAM account name={sam_name}")
         except Exception as e:
-            logging.debug("Exception", exec_info=True)
-            logging.error(f"Skipping item, cannot process due to error {e}")
+            logger.debug("[-] Exception", exec_info=True)
+            logger.error(f"[!] Skipping item, cannot process due to error {e}")
             pass
 
-        #if not gmsa_sid == b"" and not mskds_managed_password_id == b"":
         sid = LDAP_SID(gmsa_sid)
         key_id = KeyIdentifier.unpack(mskds_managed_password_id)
         self.key_identifiers[sid] = {}
@@ -75,82 +76,55 @@ class LdapSession:
         mskds_root_key_data = b""
         mskds_version = 0
         mskds_kdf_param = b""
-        mskds_secret_agreement_algorithm_id = ""
-        mskds_secret_agreement_param = b""
-        mskds_private_key_length = 0
-        mskds_public_key_length = 0
     
         try:
             for attribute in item['attributes']:
                 if str(attribute['type']) == 'cn':
                     root_id_str = attribute['vals'][0].asOctets().decode('utf-8')
-                    logging.debug(f"rootID={root_id_str}")
+                    logger.debug(f"[-] rootID={root_id_str}")
                 elif str(attribute['type']) == "msKds-Version":
                     mskds_version = int(attribute['vals'][0])
-                    logging.debug(f"msKds-Version={mskds_version}")
+                    logger.debug(f"[-] msKds-Version={mskds_version}")
                 elif str(attribute['type']) == "msKds-KDFAlgorithmID":
                     mskds_kdf_algorithm_id = attribute['vals'][0].asOctets().decode('utf-8')
-                    logging.debug(f"msKds-KDFAlogrithmID={mskds_kdf_algorithm_id}")
+                    logger.debug(f"[-] msKds-KDFAlogrithmID={mskds_kdf_algorithm_id}")
                 elif str(attribute['type']) == "msKds-KDFParam":
                     mskds_kdf_param = attribute['vals'][0].asOctets()
-                    logging.debug(f"msKds-KDFParam={hexlify(mskds_kdf_param).decode()}")
-                elif str(attribute['type']) == "msKds-SecretAgreementAlgorithmID":
-                    mskds_secret_agreement_algorithm_id = attribute['vals'][0].asOctets().decode('utf-8')
-                    logging.debug(f"msKds-SecretAgreementAlgorithmID={mskds_secret_agreement_algorithm_id}")
-                elif str(attribute['type']) == "msKds-SecretAgreementParam":
-                    mskds_secret_agreement_param = attribute['vals'][0].asOctets()
-                    logging.debug(f"msKds-SecretAgreementParam={hexlify(mskds_secret_agreement_param).decode()}")
-                elif str(attribute['type']) == "msKds-PrivateKeyLength":
-                    mskds_private_key_length = int(attribute['vals'][0])
-                    logging.debug(f"msKds-PrivateKeyLength={mskds_private_key_length}")
-                elif str(attribute['type']) == "msKds-PublicKeyLength":
-                    mskds_public_key_length = int(attribute['vals'][0])
-                    logging.debug(f"msKds-PublicKeyLength={mskds_public_key_length}")
-                elif str(attribute['type']) == "msKds-DomainID":
-                    mskds_domain_id = attribute['vals'][0].asOctets().decode('utf-8')
-                    logging.debug(f"msKds-DomainID={mskds_domain_id}")
-                elif str(attribute['type']) == "msKds-CreateTime":
-                    mskds_create_time = int(attribute['vals'][0])
-                    logging.debug(f"msKds-CreateTime={mskds_create_time}")
-                elif str(attribute['type']) == "msKds-UseStartTime":
-                    mskds_use_start_time = int(attribute['vals'][0])
-                    logging.debug(f"msKds-UseStartTime={mskds_use_start_time}")
+                    logger.debug(f"[-] msKds-KDFParam={hexlify(mskds_kdf_param).decode()}")
+                # TODO possibly debug print the UseStartTime
+                #elif str(attribute['type']) == "msKds-UseStartTime":
+                #    mskds_use_start_time = int(attribute['vals'][0])
+                #    logger.debug(f"msKds-UseStartTime={mskds_use_start_time}")
                 elif str(attribute['type']) == "msKds-RootKeyData":
                     mskds_root_key_data = attribute['vals'][0].asOctets()
-                    logging.debug(f"mskds-root_key_data={hexlify(mskds_root_key_data).decode()}")
-                    mskds_root_key_data_size = len(mskds_root_key_data)
-                    logging.debug(f"msKds-RootKeyDataSize={mskds_root_key_data_size}")
+                    logger.debug(f"[-] mskds-root_key_data={hexlify(mskds_root_key_data).decode()}")
         except Exception as e:
-            logging.debug("Exception", exec_info=True)
-            logging.error(f"Skipping item, cannot process due to error {e}")
+            logger.debug("[-] Exception", exec_info=True)
+            logger.error(f"[!] Skipping item, cannot process due to error {e}")
             pass
       
         # store KDS root key in cache
         root_id = uuid.UUID(root_id_str)
         self.cache.load_key(mskds_root_key_data,
                             root_id, version=mskds_version, kdf_algorithm=mskds_kdf_algorithm_id,
-                            kdf_parameters=mskds_kdf_param,
-                            secret_algorithm=mskds_secret_agreement_algorithm_id,
-                            secret_parameters=mskds_secret_agreement_param,
-                            private_key_length=mskds_private_key_length,
-                            public_key_length=mskds_public_key_length)
-        logging.info(f"[+] retrieved root key {root_id_str}")
+                            kdf_parameters=mskds_kdf_param)
+        logger.info(f"[+] retrieved root key {root_id_str}")
 
     def get_kds_root_keys(self):
 
-        logging.info(f"Querying {self.target} for KDS Root Parameters")
         requested_base = "CN=Configuration," + self.base_dn
 
         self._ldap_login(requested_base)
+        logger.info(f"[>] Querying {self.target} for KDS Root Parameters")
 
         # build search filter
         search_filter = "(&(objectClass=msKds-ProvRootKey))"
 
         try:
-            logging.debug(f"Search filter={search_filter}")
+            logger.debug(f"[-] Search filter={search_filter}")
             sc = ldap.SimplePagedResultsControl(size=1)
             self.ldapConnection.search(searchFilter=search_filter,
-                                  searchControls = [sc], perRecordCallback=self._process_kds_root_record)
+                searchControls = [sc], perRecordCallback=self._process_kds_root_record)
         except ldap.LDAPSearchError:
             raise
 
@@ -160,16 +134,16 @@ class LdapSession:
 
     def get_gmsa_params(self):
 
-        logging.info("Querying for gMSA accounts")
+        logger.info("[>] Querying for gMSA accounts")
         self._ldap_login(self.base_dn)
 
         search_filter = "(&(ObjectClass=msDS-GroupManagedServiceAccount))"
 
         try:
-            logging.debug(f"search filter={search_filter}")
+            logger.debug(f"[-] search filter={search_filter}")
             sc = ldap.SimplePagedResultsControl(size=1)
             self.ldapConnection.search(searchFilter=search_filter,
-                                       searchControls = [sc], perRecordCallback=self._process_gmsa_record)
+                searchControls = [sc], perRecordCallback=self._process_gmsa_record)
         except ldap.LDAPSearchError:
             raise
 
@@ -180,7 +154,7 @@ class LdapSession:
     def _ldap_login(self, requested_base):
       
         if self.domain == '':
-            logging.critical('Domain should be specified!')
+            logger.critical('[!] Domain should be specified!')
             sys.exit(1)
       
         if self.password == '' and self.username != '' and self.hashes is None and self.no_pass is False and self.aes_key is None:
@@ -216,12 +190,12 @@ class LdapSession:
                                                  self.aes_key, kdcHost=self.kdc_ip)
             else:
                 if str(e).find('NTLMAuthNegotiate') >= 0:
-                    logging.critical("NTLM negotiation failed. Probably NTLM is disabled. Try to use kerberos auth instead")
+                    logger.critical("[!] NTLM negotiation failed. Probably NTLM is disabled. Try to use kerberos auth instead")
                 else:
                     if self.kdc_ip is not None:
-                        logging.critical("If the creds are valid, check the hostname and IP address of the KDC. They must match")
+                        logger.critical("[!] If the creds are valid, check the hostname and IP address of the KDC. They must match")
             raise
 
-        logging.debug("Connected to the LDAP server")
+        logger.debug("[-] Connected to the LDAP server")
         return self.ldapConnection
 
