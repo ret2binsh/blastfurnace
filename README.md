@@ -19,6 +19,5 @@ options:
 commands:
   
     auto      run command in full auto mode
-    generate  generate gMSA key
     offline   offline mode, all material required
 ```

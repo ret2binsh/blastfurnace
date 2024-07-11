@@ -45,13 +45,3 @@ def execute_offline(args):
     logger.info(f"[+] {args.sam}:aes256-cts-hmac-sha1-96:::{aes_256}")
     logger.info(f"[+] {args.sam}:aes128-cts-hmac-sha1-96:::{aes_128}")
     logger.info(f"[+] {args.sam}:gMSA-password:::{base64.b64encode(gmsa_passwd).decode()}")
-
-
-
-# managedpasswordid
-# sid
-# sam name
-
-# rootKeyData
-# root key uuid 
-# kdf parameters
