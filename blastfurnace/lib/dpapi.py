@@ -345,6 +345,8 @@ class KeyCache:
     @classmethod
     def load_cache(self, cache):
 
+        logger.debug(f"[-] loading cache with {cache}")
+
         kcache = KeyCache()
         for rkid in cache:
             rk = RootKey.unpack(base64.b64decode(cache[rkid]))

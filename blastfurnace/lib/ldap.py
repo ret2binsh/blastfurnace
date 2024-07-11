@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class LdapSession:
 
     def __init__(self, options):
-        self.domain, self.username, self.password = parse_credentials(options.target)
+        self.domain, self.username, self.password = parse_credentials(options.account)
         self.lmhash = ""
         self.nthash = ""
         self.target = ""
@@ -132,12 +132,15 @@ class LdapSession:
 
         return self.cache
 
-    def get_gmsa_params(self):
+    def get_gmsa_params(self, name):
 
         logger.info("[>] Querying for gMSA accounts")
         self._ldap_login(self.base_dn)
 
         search_filter = "(&(ObjectClass=msDS-GroupManagedServiceAccount))"
+
+        if name:
+            search_filter = f"(&(ObjectClass=msDS-GroupManagedServiceAccount)(cn={name}))"
 
         try:
             logger.debug(f"[-] search filter={search_filter}")
