@@ -8,7 +8,7 @@ from blastfurnace.lib.dpapi import get_gke_from_cache, KeyCache
 
 logger = logging.getLogger(__name__)
 
-def execute_auto(args):
+def execute_auto(parser, args):
 
     logger.debug("[-] Auto mode enabled")
     logger.info("[>] Starting LDAP Session")

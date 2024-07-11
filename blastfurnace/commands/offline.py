@@ -9,11 +9,12 @@ from blastfurnace.lib.crypto import calculate_ntlm_hash, calculate_aes_passwd
 logger = logging.getLogger(__name__)
 
 
-def execute_offline(args):
+def execute_offline(parser, args):
 
     logger.debug("[-] Offline mode enabled")
     if args.kcache and (args.rkid or args.key or args.kdfparam):
-        raise argparse.ArgumentTypeError("Cannot combine kcache with the kds arguments")
+        #raise argparse.ArgumentTypeError("Cannot combine kcache with the kds arguments")
+        parser.error("Cannot combine kcache with the kds arguments")
 
     cache = KeyCache()
     if not args.kcache:

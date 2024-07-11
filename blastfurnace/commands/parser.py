@@ -2,15 +2,11 @@ import argparse
 
 from blastfurnace.commands.offline import execute_offline
 from blastfurnace.commands.auto_command import execute_auto
-from blastfurnace.commands.generate_command import execute_generate
 
 banner = '''
 █▄▄ █░░ ▄▀█ █▀ ▀█▀ █▀▀ █░█ █▀█ █▄░█ ▄▀█ █▀▀ █▀▀
 █▄█ █▄▄ █▀█ ▄█ ░█░ █▀░ █▄█ █▀▄ █░▀█ █▀█ █▄▄ ██▄
 '''
-
-def generate_password(args):
-    print(f"generate args: {args}")
 
 def parse_commandline():
 
@@ -47,11 +43,6 @@ def parse_commandline():
         help="Specify a target gMSA by account name")
     auto.set_defaults(execute=execute_auto)
 
-    generate = subparsers.add_parser("generate", 
-        formatter_class=argparse.RawDescriptionHelpFormatter, description=banner,
-        help="generate gMSA key")
-    generate.set_defaults(execute=execute_generate)
-
     offline = subparsers.add_parser("offline",
         formatter_class=argparse.RawDescriptionHelpFormatter, description=banner,
         help="offline mode, all material required")
@@ -76,4 +67,5 @@ def parse_commandline():
         help="KDS Cache file (.kcache) containing KDS Root Key information")
     offline.set_defaults(execute=execute_offline)
 
-    return p.parse_args()
+    #return p.parse_args()
+    return p
